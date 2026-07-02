@@ -1,0 +1,36 @@
+\{\s*(\w+),\s*(\w+),\s*[^{}]*\{ - covers all forms of opening plural strings (MUST BE ADDED FIRST ON REGEX LIST)
+(\}\s*?(\w+)\s*?\{) - covers internal non-translatable content in plural strings (MUST BE ADDED SECOND ON REGEX LIST)
+\}+ - stray closing } for plural strings (MUST BE ADDED THIRD ON REGEX LIST)
+\{+ - stray opening { for plural strings (MUST BE ADDED AFTER {+.*?}+ <if used> ON REGEX LIST)
+
+(\{count, plural, =0 \{)
+(\} (\w+) \{)
+(\} other \{)
+(\{count\})
+{[^{}\n]*?{#?
+}[^{}\n]*?}
+{[^{}\n]*?}
+}[^{}\n]*?{(?!arg\d)#?
+\{(\w+), plural, [^{}]*\{
+
+\{(\w+),(\w+),[^{}]*\{
+
+\{(\w+), plural, [^{}]*\{
+\{(\w+), plural, =0 \{
+(\}* one \{)
+(\}* other \{)
+{+.*?}+
+\\n
+<[^/]*?>
+</[^/]*?>
+<[^/].*?/>
+<[^/].*?[^/]>
+&[^\s]+?;
+%\d
+%\(.*?\)s
+%(.*?)
+<.*?>
+\$[^;]*?;
+
+
+
