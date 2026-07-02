@@ -1,12 +1,29 @@
 # CAT Regex Protector
 
-Small desktop GUI tool for generating regex rules for CAT-tool protection workflows.
+Small GUI tool for generating regex rules for CAT-tool protection workflows. Ships as a Tkinter desktop app and a Streamlit web app, both built on the shared regex logic in `regex_core.py`.
 
-## Run
+## Run (desktop)
 
 ```bash
-python regex-app.py
+python RegexAssist.py
 ```
+
+## Run (web)
+
+```bash
+pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
+
+The web app reads/writes the same `custom_regex_rules.json` and `Plural_form_regex.txt` files as the desktop app when run from the same folder, so a custom rule saved in one shows up in the other.
+
+## Build a standalone .exe
+
+```bash
+python build_exe.py
+```
+
+Produces `dist/CAT Regex Protector.exe` (see `launcher.py` for the entry point used).
 
 ## Input Guidance
 
