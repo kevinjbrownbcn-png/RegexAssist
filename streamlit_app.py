@@ -21,6 +21,7 @@ APP_DIR = os.path.dirname(__file__)
 CUSTOM_RULES_PATH = os.path.join(APP_DIR, "custom_regex_rules.json")
 DEFAULT_ICU_RULE_PATH = os.path.join(APP_DIR, "Plural_form_regex.txt")
 FAVICON_PATH = os.path.join(APP_DIR, "favicon.png")
+README_PATH = os.path.join(APP_DIR, "README.md")
 
 MODES = ["generic match", "exact match", "word-only", "number-only", "custom regex"]
 
@@ -107,6 +108,13 @@ with detail_col:
         st.code(selected_rule.pattern, language="regex")
         st.markdown(f"**Purpose:** {selected_rule.purpose}")
 
+        with st.popover("Copy details"):
+            st.caption("Full rule block — use the copy icon in the corner.")
+            st.code(
+                f"Rule: {selected_rule.name}\nRegex: {selected_rule.pattern}\nPurpose: {selected_rule.purpose}",
+                language=None,
+            )
+
         if st.button("Save as custom"):
             if any(r.pattern == selected_rule.pattern for r in st.session_state.saved_custom_rules):
                 st.warning("Custom regex already saved.")
@@ -157,3 +165,10 @@ with st.expander("Load custom ICU rule set from TXT"):
             st.warning("No valid ICU rules found in file.")
     if st.session_state.custom_icu_rules:
         st.caption(f"Currently loaded: {len(st.session_state.custom_icu_rules)} ICU rules.")
+
+with st.expander("README"):
+    try:
+        with open(README_PATH, "r", encoding="utf-8") as file_handle:
+            st.markdown(file_handle.read())
+    except OSError:
+        st.caption("README.md not found next to streamlit_app.py.")

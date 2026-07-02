@@ -5,8 +5,11 @@ Small GUI tool for generating regex rules for CAT-tool protection workflows. Shi
 ## Run (desktop)
 
 ```bash
+pip install -r requirements.txt
 python RegexAssist.py
 ```
+
+Uses [ttkbootstrap](https://ttkbootstrap.readthedocs.io/) for a modern, rounded dark theme on top of Tkinter.
 
 ## Run (web)
 

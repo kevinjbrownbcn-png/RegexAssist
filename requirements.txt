@@ -1,1 +1,6 @@
+# Desktop app (RegexAssist.py) + exe build
+ttkbootstrap>=1.10
+pyinstaller>=6.0
+
+# Web app (streamlit_app.py)
 streamlit>=1.38

@@ -5,6 +5,9 @@ from tkinter import ttk, messagebox, filedialog
 import os
 import webbrowser
 
+import ttkbootstrap  # noqa: F401 — side effect: patches tkinter.ttk widgets to accept bootstyle=
+from ttkbootstrap.style import Style, ThemeDefinition
+
 from regex_core import (
     ACCENT_AMBER,
     ACCENT_PURPLE,
@@ -13,9 +16,11 @@ from regex_core import (
     BG_HEADER,
     BG_PANEL,
     BORDER,
+    ERROR,
     FONT_FAMILY,
     RegexRule,
     STATUS_COLORS,
+    SUCCESS,
     TEXT_MAIN,
     TEXT_MUTED,
     build_icu_plural_rules,
@@ -50,8 +55,6 @@ class RegexApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("CAT Regex Protector")
-        self.root.geometry("760x540")
-        self.root.minsize(700, 500)
         self.root.configure(bg=BG_APP)
 
         self._configure_style()
@@ -122,32 +125,36 @@ class RegexApp:
         )
         mode_picker.pack(side="left", padx=(8, 10))
 
-        ttk.Button(action_frame, text="Generate Regex", style="Accent.TButton", command=self.generate).pack(
+        ttk.Button(action_frame, text="Generate Regex", bootstyle="primary", command=self.generate).pack(
             side="left"
         )
-        ttk.Button(action_frame, text="Clear", command=self.clear).pack(side="left", padx=(8, 0))
-        ttk.Button(action_frame, text="Open README", command=self.open_readme).pack(side="left", padx=(8, 0))
+        ttk.Button(action_frame, text="Clear", bootstyle="secondary", command=self.clear).pack(
+            side="left", padx=(8, 0)
+        )
+        ttk.Button(action_frame, text="Open README", bootstyle="secondary", command=self.open_readme).pack(
+            side="left", padx=(8, 0)
+        )
         ttk.Button(
             action_frame,
             text="Save Selected as Custom",
-            style="Purple.TButton",
+            bootstyle="info",
             command=self.save_selected_as_custom,
         ).pack(side="left", padx=(8, 0))
         ttk.Button(
             action_frame,
             text="Delete Custom Rule",
-            style="Purple.TButton",
+            bootstyle="info",
             command=self.delete_selected_custom,
         ).pack(side="left", padx=(8, 0))
         ttk.Button(
             action_frame,
             text="Load ICU TXT Rules",
-            style="Amber.TButton",
+            bootstyle="warning",
             command=self.load_icu_rules_file,
         ).pack(side="left", padx=(8, 0))
-        ttk.Button(action_frame, text="Copy Selected Rule", command=self.copy_selected_rule).pack(
-            side="left", padx=(8, 0)
-        )
+        ttk.Button(
+            action_frame, text="Copy Selected Rule", bootstyle="secondary", command=self.copy_selected_rule
+        ).pack(side="left", padx=(8, 0))
 
         list_frame = ttk.Frame(container)
         list_frame.pack(fill="both", expand=True)
@@ -192,7 +199,9 @@ class RegexApp:
         bottom_frame = ttk.Frame(container)
         bottom_frame.pack(fill="x", pady=(10, 0))
 
-        ttk.Button(bottom_frame, text="Copy Details Panel", command=self.copy_details).pack(side="left")
+        ttk.Button(
+            bottom_frame, text="Copy Details Panel", bootstyle="secondary", command=self.copy_details
+        ).pack(side="left")
         self.status_var = tk.StringVar(value="Ready.")
         self.status_label = ttk.Label(bottom_frame, textvariable=self.status_var, style="Muted.TLabel")
         self.status_label.pack(side="right")
@@ -203,6 +212,14 @@ class RegexApp:
         self.try_load_default_icu_rules()
         self._write_welcome()
 
+        # Size from actual content instead of a guessed constant — the action button
+        # row silently overflows a too-small fixed window since Tk doesn't wrap it.
+        self.root.update_idletasks()
+        req_width = self.root.winfo_reqwidth()
+        req_height = self.root.winfo_reqheight()
+        self.root.minsize(req_width, req_height)
+        self.root.geometry(f"{req_width + 20}x{req_height + 20}")
+
     def _configure_style(self) -> None:
         for font_name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont"):
             tkfont.nametofont(font_name).configure(family=FONT_FAMILY, size=10)
@@ -212,71 +229,38 @@ class RegexApp:
         self.root.option_add("*TCombobox*Listbox*selectBackground", ACCENT_TEAL)
         self.root.option_add("*TCombobox*Listbox*selectForeground", BG_APP)
 
-        style = ttk.Style(self.root)
-        style.theme_use("clam")
+        style = Style()
+        style.register_theme(
+            ThemeDefinition(
+                name="catregex",
+                themetype="dark",
+                colors={
+                    "primary": ACCENT_TEAL,
+                    "secondary": TEXT_MUTED,
+                    "success": SUCCESS,
+                    "info": ACCENT_PURPLE,
+                    "warning": ACCENT_AMBER,
+                    "danger": ERROR,
+                    "light": BG_PANEL,
+                    "dark": BG_HEADER,
+                    "bg": BG_APP,
+                    "fg": TEXT_MAIN,
+                    "selectbg": ACCENT_TEAL,
+                    "selectfg": BG_APP,
+                    "border": BORDER,
+                    "inputfg": TEXT_MAIN,
+                    "inputbg": BG_PANEL,
+                    "active": "#5eead4",
+                },
+            )
+        )
+        style.theme_use("catregex")
 
-        style.configure("TFrame", background=BG_APP)
-        style.configure("TLabel", background=BG_APP, foreground=TEXT_MAIN)
-        style.configure("Muted.TLabel", background=BG_APP, foreground=TEXT_MUTED)
         style.configure("Header.TFrame", background=BG_HEADER)
         style.configure(
             "Title.TLabel", background=BG_HEADER, foreground=TEXT_MAIN, font=(FONT_FAMILY, 14, "bold")
         )
-
-        style.configure(
-            "TButton",
-            background=BG_PANEL,
-            foreground=TEXT_MAIN,
-            bordercolor=BORDER,
-            focuscolor=ACCENT_TEAL,
-            padding=6,
-        )
-        style.map(
-            "TButton",
-            background=[("active", ACCENT_TEAL), ("pressed", ACCENT_TEAL)],
-            foreground=[("active", BG_APP), ("pressed", BG_APP)],
-        )
-
-        style.configure("Accent.TButton", background=ACCENT_TEAL, foreground=BG_APP, bordercolor=ACCENT_TEAL)
-        style.map("Accent.TButton", background=[("active", "#5eead4")], foreground=[("active", BG_APP)])
-
-        style.configure("Amber.TButton", background=BG_PANEL, foreground=ACCENT_AMBER, bordercolor=ACCENT_AMBER)
-        style.map("Amber.TButton", background=[("active", ACCENT_AMBER)], foreground=[("active", BG_APP)])
-
-        style.configure("Purple.TButton", background=BG_PANEL, foreground=ACCENT_PURPLE, bordercolor=ACCENT_PURPLE)
-        style.map("Purple.TButton", background=[("active", ACCENT_PURPLE)], foreground=[("active", TEXT_MAIN)])
-
-        style.configure(
-            "TEntry",
-            fieldbackground=BG_PANEL,
-            foreground=TEXT_MAIN,
-            insertcolor=TEXT_MAIN,
-            bordercolor=BORDER,
-        )
-        style.map("TEntry", bordercolor=[("focus", ACCENT_TEAL)])
-
-        style.configure(
-            "TCombobox",
-            fieldbackground=BG_PANEL,
-            background=BG_PANEL,
-            foreground=TEXT_MAIN,
-            arrowcolor=TEXT_MUTED,
-            bordercolor=BORDER,
-        )
-        style.map(
-            "TCombobox",
-            fieldbackground=[("readonly", BG_PANEL)],
-            foreground=[("readonly", TEXT_MAIN)],
-            bordercolor=[("focus", ACCENT_TEAL)],
-        )
-
-        style.configure(
-            "Vertical.TScrollbar",
-            background=BG_PANEL,
-            troughcolor=BG_APP,
-            bordercolor=BORDER,
-            arrowcolor=TEXT_MUTED,
-        )
+        style.configure("Muted.TLabel", background=BG_APP, foreground=TEXT_MUTED)
 
     def _set_status(self, message: str, kind: str = "default") -> None:
         self.status_var.set(message)
