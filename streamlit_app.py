@@ -3,11 +3,15 @@ used by the Tkinter desktop app (RegexAssist.py). Run with:
 
     streamlit run streamlit_app.py
 """
+import datetime
 import os
 
 import streamlit as st
 
 from regex_core import (
+    DEFAULT_THEME,
+    FONT_FAMILY,
+    THEMES,
     RegexRule,
     build_icu_plural_rules,
     build_mode_rules,
@@ -22,6 +26,8 @@ CUSTOM_RULES_PATH = os.path.join(APP_DIR, "custom_regex_rules.json")
 DEFAULT_ICU_RULE_PATH = os.path.join(APP_DIR, "Plural_form_regex.txt")
 FAVICON_PATH = os.path.join(APP_DIR, "favicon.png")
 README_PATH = os.path.join(APP_DIR, "README.md")
+GITHUB_URL = "https://github.com/kevinjbrownbcn-png/RegexAssist"
+GITHUB_README_URL = f"{GITHUB_URL}/blob/main/README.md"
 
 MODES = ["generic match", "exact match", "word-only", "number-only", "custom regex"]
 
@@ -32,6 +38,89 @@ st.set_page_config(
 )
 
 
+def _inject_theme_css(theme: str) -> None:
+    c = THEMES[theme]
+    st.markdown(
+        f"""
+        <style>
+        :root {{
+            --primary-color: {c['accent_teal']};
+            --background-color: {c['bg_app']};
+            --secondary-background-color: {c['bg_panel']};
+            --text-color: {c['text_main']};
+        }}
+        .stApp {{
+            background-color: {c['bg_app']};
+            color: {c['text_main']};
+            font-family: {FONT_FAMILY};
+        }}
+        [data-testid="stHeader"] {{
+            background-color: {c['bg_header']};
+        }}
+        [data-testid="stExpander"] {{
+            background-color: {c['bg_panel']};
+            border: 1px solid {c['border']};
+            border-radius: 8px;
+        }}
+        div[data-baseweb="input"] > div,
+        div[data-baseweb="select"] > div,
+        div[data-baseweb="base-input"] {{
+            background-color: {c['bg_panel']} !important;
+            border-color: {c['border']} !important;
+            color: {c['text_main']} !important;
+        }}
+        code, pre {{
+            background-color: {c['bg_panel']} !important;
+            color: {c['text_main']} !important;
+        }}
+        hr {{
+            border-color: {c['border']};
+        }}
+        .stButton > button,
+        .stDownloadButton > button,
+        [data-testid="stFileUploaderDropzone"],
+        [data-testid="stPopover"] > div > button {{
+            background-color: {c['bg_panel']} !important;
+            color: {c['text_main']} !important;
+            border-color: {c['border']} !important;
+        }}
+        .stButton > button[kind="primary"] {{
+            background-color: {c['accent_teal']} !important;
+            color: #f8fafc !important;
+            border-color: {c['accent_teal']} !important;
+        }}
+        a {{
+            color: {c['accent_teal']};
+        }}
+        .catregex-footer {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 4px 4px 4px;
+            margin-top: 24px;
+            border-top: 1px solid {c['border']};
+            font-family: {FONT_FAMILY};
+        }}
+        .catregex-footer .left {{
+            color: {c['text_muted']};
+            font-size: 0.85rem;
+        }}
+        .catregex-footer .right a {{
+            color: {c['accent_teal']};
+            font-weight: 700;
+            text-decoration: none;
+            margin-left: 18px;
+            font-size: 0.85rem;
+        }}
+        .catregex-footer .right a:hover {{
+            text-decoration: underline;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _load_default_icu_rules() -> list[RegexRule]:
     try:
         with open(DEFAULT_ICU_RULE_PATH, "r", encoding="utf-8") as file_handle:
@@ -40,6 +129,8 @@ def _load_default_icu_rules() -> list[RegexRule]:
         return []
 
 
+if "theme" not in st.session_state:
+    st.session_state.theme = DEFAULT_THEME
 if "rules" not in st.session_state:
     st.session_state.rules = []
 if "custom_icu_rules" not in st.session_state:
@@ -47,8 +138,23 @@ if "custom_icu_rules" not in st.session_state:
 if "saved_custom_rules" not in st.session_state:
     st.session_state.saved_custom_rules = load_saved_custom_rules(CUSTOM_RULES_PATH)
 
+_inject_theme_css(st.session_state.theme)
 
-st.title("Regex Builder for CAT Tools")
+title_col, theme_col = st.columns([5, 1])
+with title_col:
+    st.title("Regex Builder for CAT Tools")
+with theme_col:
+    theme_choice = st.segmented_control(
+        "Theme",
+        ["Dark", "Light"],
+        default=st.session_state.theme.capitalize(),
+        label_visibility="collapsed",
+    )
+    new_theme = (theme_choice or st.session_state.theme.capitalize()).lower()
+    if new_theme != st.session_state.theme:
+        st.session_state.theme = new_theme
+        st.rerun()
+
 st.caption(
     "Enter content to protect (for example `<b>`, `<i>`, `{0}`, `%s`, ICU plural messages). "
     "Generate separate rules and copy them one-by-one for CAT tool regex settings."
@@ -172,3 +278,17 @@ with st.expander("README"):
             st.markdown(file_handle.read())
     except OSError:
         st.caption("README.md not found next to streamlit_app.py.")
+
+_year = datetime.date.today().year
+st.markdown(
+    f"""
+    <div class="catregex-footer">
+        <div class="left">© {_year} CAT Regex Protector | Regex Builder for CAT Tools</div>
+        <div class="right">
+            <a href="{GITHUB_README_URL}" target="_blank">README</a>
+            <a href="{GITHUB_URL}" target="_blank">GitHub</a>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)

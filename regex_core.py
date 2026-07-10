@@ -7,27 +7,51 @@ import json
 import re
 from dataclasses import dataclass
 
-FONT_FAMILY = "Segoe UI"
+FONT_FAMILY = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+FONT_FAMILY_TK = "Segoe UI"  # Tkinter needs a single concrete family, not a CSS stack
 
-BG_APP = "#0f172a"
-BG_PANEL = "#1e293b"
-BG_HEADER = "#0b0f19"
-ACCENT_TEAL = "#2dd4bf"
-ACCENT_AMBER = "#eab308"
-ACCENT_PURPLE = "#a855f7"
-TEXT_MUTED = "#64748b"
-BORDER = "#30363d"
-TEXT_MAIN = "#f8fafc"
-SUCCESS = "#10b981"
-ERROR = "#ef4444"
-WARNING = "#f97316"
+DEFAULT_THEME = "dark"
 
-STATUS_COLORS = {
-    "default": TEXT_MUTED,
-    "success": SUCCESS,
-    "warning": WARNING,
-    "error": ERROR,
+THEMES = {
+    "dark": {
+        "bg_app": "#0f172a",
+        "bg_panel": "#1e293b",
+        "bg_header": "#0b0f19",
+        "accent_teal": "#2dd4bf",
+        "accent_amber": "#eab308",
+        "accent_purple": "#a855f7",
+        "text_muted": "#64748b",
+        "border": "#30363d",
+        "text_main": "#f8fafc",
+        "success": "#10b981",
+        "error": "#ef4444",
+        "warning": "#f97316",
+    },
+    "light": {
+        "bg_app": "#f8fafc",
+        "bg_panel": "#ffffff",
+        "bg_header": "#e2e8f0",
+        "accent_teal": "#0d9488",
+        "accent_amber": "#b45309",
+        "accent_purple": "#9333ea",
+        "text_muted": "#475569",
+        "border": "#cbd5e1",
+        "text_main": "#0f172a",
+        "success": "#16a34a",
+        "error": "#dc2626",
+        "warning": "#ea580c",
+    },
 }
+
+
+def status_colors(theme: str) -> dict[str, str]:
+    colors = THEMES[theme]
+    return {
+        "default": colors["text_muted"],
+        "success": colors["success"],
+        "warning": colors["warning"],
+        "error": colors["error"],
+    }
 
 
 @dataclass

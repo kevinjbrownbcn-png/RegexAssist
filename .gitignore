@@ -10,8 +10,9 @@ build/
 dist/
 *.spec
 
-# App-generated data (user's local custom regex library, not source)
+# App-generated data (user's local custom regex library / theme choice, not source)
 custom_regex_rules.json
+theme_prefs.json
 
 # Editor/OS cruft
 .vscode/

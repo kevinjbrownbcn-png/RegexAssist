@@ -28,6 +28,10 @@ python build_exe.py
 
 Produces `dist/CAT Regex Protector.exe` (see `launcher.py` for the entry point used).
 
+## Theme
+
+Both apps ship a dark and a light theme (colors defined once in `regex_core.py`) with a switcher in the header, defaulting to dark. The desktop app remembers your choice in `theme_prefs.json` next to the exe; the web app remembers it for the current browser session.
+
 ## Input Guidance
 
 - In the input box, include full code/token wrappers.

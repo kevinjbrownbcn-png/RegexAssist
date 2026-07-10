@@ -1,3 +1,5 @@
+import datetime
+import json
 import sys
 import tkinter as tk
 import tkinter.font as tkfont
@@ -9,27 +11,20 @@ import ttkbootstrap  # noqa: F401 — side effect: patches tkinter.ttk widgets t
 from ttkbootstrap.style import Style, ThemeDefinition
 
 from regex_core import (
-    ACCENT_AMBER,
-    ACCENT_PURPLE,
-    ACCENT_TEAL,
-    BG_APP,
-    BG_HEADER,
-    BG_PANEL,
-    BORDER,
-    ERROR,
-    FONT_FAMILY,
+    DEFAULT_THEME,
+    FONT_FAMILY_TK,
+    THEMES,
     RegexRule,
-    STATUS_COLORS,
-    SUCCESS,
-    TEXT_MAIN,
-    TEXT_MUTED,
     build_icu_plural_rules,
     build_mode_rules,
     is_icu_plural_message,
     load_custom_rules_from_path,
     load_saved_custom_rules,
     save_custom_rules,
+    status_colors,
 )
+
+GITHUB_URL = "https://github.com/kevinjbrownbcn-png/RegexAssist"
 
 
 def _app_dir() -> str:
@@ -49,15 +44,39 @@ def _resource_dir() -> str:
 DEFAULT_ICU_RULE_PATH = os.path.join(_resource_dir(), "Plural_form_regex.txt")
 CUSTOM_RULES_PATH = os.path.join(_app_dir(), "custom_regex_rules.json")
 README_PATH = os.path.join(_resource_dir(), "README.md")
+THEME_PREFS_PATH = os.path.join(_app_dir(), "theme_prefs.json")
+
+
+def load_theme_pref() -> str:
+    try:
+        with open(THEME_PREFS_PATH, "r", encoding="utf-8") as file_handle:
+            data = json.load(file_handle)
+        theme = data.get("theme")
+        if theme in THEMES:
+            return theme
+    except (OSError, json.JSONDecodeError):
+        pass
+    return DEFAULT_THEME
+
+
+def save_theme_pref(theme: str) -> None:
+    try:
+        with open(THEME_PREFS_PATH, "w", encoding="utf-8") as file_handle:
+            json.dump({"theme": theme}, file_handle)
+    except OSError:
+        pass
 
 
 class RegexApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("CAT Regex Protector")
-        self.root.configure(bg=BG_APP)
+        self.theme = load_theme_pref()
+        self.colors = THEMES[self.theme]
+        self._status_kind = "default"
 
         self._configure_style()
+        self.root.configure(bg=self.colors["bg_app"])
 
         header = ttk.Frame(root, style="Header.TFrame", padding=(14, 12))
         header.pack(fill="x")
@@ -65,8 +84,46 @@ class RegexApp:
             header,
             text="Regex Builder for CAT Tools",
             style="Title.TLabel",
-        ).pack(anchor="w")
-        tk.Frame(root, height=2, bg=ACCENT_TEAL, bd=0, highlightthickness=0).pack(fill="x")
+        ).pack(side="left")
+
+        switcher_frame = ttk.Frame(header, style="Header.TFrame")
+        switcher_frame.pack(side="right")
+        ttk.Label(switcher_frame, text="Theme:", style="MutedHeader.TLabel").pack(side="left", padx=(0, 6))
+        self.theme_var = tk.StringVar(value=self.theme.capitalize())
+        theme_picker = ttk.Combobox(
+            switcher_frame,
+            textvariable=self.theme_var,
+            state="readonly",
+            values=["Dark", "Light"],
+            width=8,
+        )
+        theme_picker.pack(side="left")
+        theme_picker.bind("<<ComboboxSelected>>", self._on_theme_change)
+
+        self.separator = tk.Frame(root, height=2, bd=0, highlightthickness=0)
+        self.separator.pack(fill="x")
+
+        self.footer_border = tk.Frame(root, height=1, bd=0, highlightthickness=0)
+        self.footer_border.pack(side="bottom", fill="x")
+        footer = ttk.Frame(root, style="Header.TFrame", padding=(14, 8))
+        footer.pack(side="bottom", fill="x")
+
+        year = datetime.date.today().year
+        self.footer_left = ttk.Label(
+            footer,
+            text=f"© {year} CAT Regex Protector | Regex Builder for CAT Tools",
+            style="MutedHeader.TLabel",
+        )
+        self.footer_left.pack(side="left")
+
+        footer_right = ttk.Frame(footer, style="Header.TFrame")
+        footer_right.pack(side="right")
+        self.footer_links: list[ttk.Label] = []
+        for text, handler in (("README", self.open_readme), ("GitHub", self._open_github)):
+            link = ttk.Label(footer_right, text=text, style="NavLink.TLabel", cursor="hand2")
+            link.pack(side="left", padx=(14, 0))
+            link.bind("<Button-1>", lambda _event, fn=handler: fn())
+            self.footer_links.append(link)
 
         container = ttk.Frame(root, padding=14)
         container.pack(fill="both", expand=True)
@@ -162,13 +219,7 @@ class RegexApp:
         self.rule_list = tk.Listbox(
             list_frame,
             height=12,
-            bg=BG_PANEL,
-            fg=TEXT_MAIN,
-            selectbackground=ACCENT_TEAL,
-            selectforeground=BG_APP,
             highlightthickness=1,
-            highlightbackground=BORDER,
-            highlightcolor=ACCENT_TEAL,
             relief="flat",
             borderwidth=0,
         )
@@ -185,12 +236,7 @@ class RegexApp:
             height=9,
             wrap="word",
             font=("Consolas", 10),
-            bg=BG_PANEL,
-            fg=TEXT_MAIN,
-            insertbackground=TEXT_MAIN,
             highlightthickness=1,
-            highlightbackground=BORDER,
-            highlightcolor=ACCENT_TEAL,
             relief="flat",
             borderwidth=0,
         )
@@ -211,6 +257,7 @@ class RegexApp:
         self.saved_custom_rules: list[RegexRule] = load_saved_custom_rules(CUSTOM_RULES_PATH)
         self.try_load_default_icu_rules()
         self._write_welcome()
+        self._apply_theme(self.theme, persist=False)
 
         # Size from actual content instead of a guessed constant — the action button
         # row silently overflows a too-small fixed window since Tk doesn't wrap it.
@@ -222,49 +269,98 @@ class RegexApp:
 
     def _configure_style(self) -> None:
         for font_name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont"):
-            tkfont.nametofont(font_name).configure(family=FONT_FAMILY, size=10)
-
-        self.root.option_add("*TCombobox*Listbox*Background", BG_PANEL)
-        self.root.option_add("*TCombobox*Listbox*Foreground", TEXT_MAIN)
-        self.root.option_add("*TCombobox*Listbox*selectBackground", ACCENT_TEAL)
-        self.root.option_add("*TCombobox*Listbox*selectForeground", BG_APP)
+            tkfont.nametofont(font_name).configure(family=FONT_FAMILY_TK, size=10)
 
         style = Style()
-        style.register_theme(
-            ThemeDefinition(
-                name="catregex",
-                themetype="dark",
-                colors={
-                    "primary": ACCENT_TEAL,
-                    "secondary": TEXT_MUTED,
-                    "success": SUCCESS,
-                    "info": ACCENT_PURPLE,
-                    "warning": ACCENT_AMBER,
-                    "danger": ERROR,
-                    "light": BG_PANEL,
-                    "dark": BG_HEADER,
-                    "bg": BG_APP,
-                    "fg": TEXT_MAIN,
-                    "selectbg": ACCENT_TEAL,
-                    "selectfg": BG_APP,
-                    "border": BORDER,
-                    "inputfg": TEXT_MAIN,
-                    "inputbg": BG_PANEL,
-                    "active": "#5eead4",
-                },
+        hover_accent = {"dark": "#5eead4", "light": "#0f766e"}
+        for theme_name, colors in THEMES.items():
+            style.register_theme(
+                ThemeDefinition(
+                    name=f"catregex_{theme_name}",
+                    themetype=theme_name,
+                    colors={
+                        "primary": colors["accent_teal"],
+                        "secondary": colors["text_muted"],
+                        "success": colors["success"],
+                        "info": colors["accent_purple"],
+                        "warning": colors["accent_amber"],
+                        "danger": colors["error"],
+                        "light": colors["bg_panel"],
+                        "dark": colors["bg_header"],
+                        "bg": colors["bg_app"],
+                        "fg": colors["text_main"],
+                        "selectbg": colors["accent_teal"],
+                        "selectfg": "#f8fafc",
+                        "border": colors["border"],
+                        "inputfg": colors["text_main"],
+                        "inputbg": colors["bg_panel"],
+                        "active": hover_accent[theme_name],
+                    },
+                )
             )
-        )
-        style.theme_use("catregex")
 
-        style.configure("Header.TFrame", background=BG_HEADER)
+    def _apply_theme(self, theme_name: str, persist: bool = True) -> None:
+        self.theme = theme_name
+        self.colors = THEMES[theme_name]
+        c = self.colors
+
+        self.root.option_add("*TCombobox*Listbox*Background", c["bg_panel"])
+        self.root.option_add("*TCombobox*Listbox*Foreground", c["text_main"])
+        self.root.option_add("*TCombobox*Listbox*selectBackground", c["accent_teal"])
+        self.root.option_add("*TCombobox*Listbox*selectForeground", c["bg_app"])
+
+        style = Style()
+        style.theme_use(f"catregex_{theme_name}")
+
+        style.configure("Header.TFrame", background=c["bg_header"])
         style.configure(
-            "Title.TLabel", background=BG_HEADER, foreground=TEXT_MAIN, font=(FONT_FAMILY, 14, "bold")
+            "Title.TLabel", background=c["bg_header"], foreground=c["text_main"], font=(FONT_FAMILY_TK, 14, "bold")
         )
-        style.configure("Muted.TLabel", background=BG_APP, foreground=TEXT_MUTED)
+        style.configure("MutedHeader.TLabel", background=c["bg_header"], foreground=c["text_muted"])
+        style.configure("Muted.TLabel", background=c["bg_app"], foreground=c["text_muted"])
+        style.configure(
+            "NavLink.TLabel",
+            background=c["bg_header"],
+            foreground=c["accent_teal"],
+            font=(FONT_FAMILY_TK, 10, "bold"),
+        )
+
+        self.root.configure(bg=c["bg_app"])
+        self.separator.configure(bg=c["accent_teal"])
+        self.footer_border.configure(bg=c["border"])
+
+        self.rule_list.configure(
+            bg=c["bg_panel"],
+            fg=c["text_main"],
+            selectbackground=c["accent_teal"],
+            selectforeground="#f8fafc",
+            highlightbackground=c["border"],
+            highlightcolor=c["accent_teal"],
+        )
+        self.details.configure(
+            bg=c["bg_panel"],
+            fg=c["text_main"],
+            insertbackground=c["text_main"],
+            highlightbackground=c["border"],
+            highlightcolor=c["accent_teal"],
+        )
+
+        self.theme_var.set(theme_name.capitalize())
+        self._set_status(self.status_var.get(), self._status_kind)
+
+        if persist:
+            save_theme_pref(theme_name)
+
+    def _on_theme_change(self, event=None) -> None:
+        self._apply_theme(self.theme_var.get().lower())
+
+    def _open_github(self) -> None:
+        webbrowser.open(GITHUB_URL)
 
     def _set_status(self, message: str, kind: str = "default") -> None:
+        self._status_kind = kind
         self.status_var.set(message)
-        self.status_label.configure(foreground=STATUS_COLORS.get(kind, TEXT_MUTED))
+        self.status_label.configure(foreground=status_colors(self.theme).get(kind, self.colors["text_muted"]))
 
     def _write_welcome(self) -> None:
         self.rule_list.delete(0, "end")
