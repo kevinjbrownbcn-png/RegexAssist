@@ -1,6 +1,9 @@
 # CAT Regex Protector
 
-Small GUI tool for generating regex rules for CAT-tool protection workflows. Ships as a Tkinter desktop app and a Streamlit web app, both built on the shared regex logic in `regex_core.py`.
+Small GUI tool for generating regex rules for CAT-tool protection workflows, plus a general-purpose regex builder/tester. Ships as a Tkinter desktop app and a Streamlit web app, both built on the shared regex logic in `regex_core.py`. Each app has two tabs:
+
+- **CAT Tools** — generate narrow regex rules that protect small non-translatable tokens (`<b>`, `{0}`, `%s`, ICU plurals) inside a CAT tool.
+- **Generic Regex** — build or test a regex for matching whole sections of general text (log lines, documents, code) outside CAT-tool workflows. Pick a preset (email, URL, IP, date, whole line, paragraph, quoted/HTML block, etc.), or generate one from a small typed segment using the same shape-detection logic as the CAT tab. Paste sample text to see matches highlighted live.
 
 ## Run (desktop)
 
@@ -84,14 +87,17 @@ Notes:
 
 ## Custom Regex Library
 
-- Save rule:
-  - Generate a rule in any mode.
-  - Select it from the list.
-  - Click `Save Selected as Custom`.
+Both tabs share one library file, `custom_regex_rules.json`, but each tab only shows the rules it saved (tagged `cat` or `generic` internally) — the CAT Tools library and the Generic Regex library are separate views onto the same file.
+
+- Save a rule:
+  - **CAT Tools:** generate a rule, select it from the list, click `Save Selected as Custom`.
+  - **Generic Regex:** name the current pattern under "Save current pattern as", click `Save to Library`.
 - Use saved rules:
-  - Switch mode to `custom regex`.
-  - Click `Generate Regex` to list saved custom rules.
-- Delete rule:
-  - While in `custom regex` mode, select a rule and click `Delete Custom Rule`.
-- Storage:
-  - Saved custom rules are stored in `custom_regex_rules.json` next to `regex-app.py`.
+  - **CAT Tools:** switch mode to `custom regex`, click `Generate Regex` to list them.
+  - **Generic Regex:** pick one from "My Library", click `Load from Library`.
+- Delete a rule:
+  - **CAT Tools:** in `custom regex` mode, select a rule and click `Delete Custom Rule`.
+  - **Generic Regex:** pick one from "My Library", click `Delete from Library`.
+- Flagging a rule as not working:
+  - Toggle a saved rule's status between Working and Flagged (`Toggle Working/Flagged` in CAT Tools; `Toggle Working/Flagged` next to a loaded rule in Generic Regex). Flagging prompts for an optional note explaining the problem.
+  - If you flag a rule while specific input/sample text is active, that exact text is remembered — the rule won't be auto-proposed (CAT Tools' `custom regex` mode) or loadable (Generic Regex' `Load from Library`) again for that *exact* text, though it still appears for other input.

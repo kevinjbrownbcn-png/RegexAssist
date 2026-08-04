@@ -5,7 +5,7 @@ Cloud, which does not have Tk installed).
 """
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 FONT_FAMILY = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 FONT_FAMILY_TK = "Segoe UI"  # Tkinter needs a single concrete family, not a CSS stack
@@ -64,6 +64,44 @@ class RegexRule:
         return {"name": self.name, "pattern": self.pattern, "purpose": self.purpose}
 
 
+MODULE_CAT = "cat"
+MODULE_GENERIC = "generic"
+MODULE_LABELS = {MODULE_CAT: "CAT Tools", MODULE_GENERIC: "Generic Regex"}
+
+STATUS_WORKING = "working"
+STATUS_FLAGGED = "flagged"
+
+
+@dataclass
+class SavedRegex:
+    """A user-saved regex in the shared custom-regex library. Distinct from
+    RegexRule (the ephemeral output of the generators) because it carries
+    library-management state that generated rules never need."""
+
+    name: str
+    pattern: str
+    purpose: str
+    module: str = MODULE_CAT
+    status: str = STATUS_WORKING
+    note: str = ""
+    flagged_samples: list[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "pattern": self.pattern,
+            "purpose": self.purpose,
+            "module": self.module,
+            "status": self.status,
+            "note": self.note,
+            "flagged_samples": self.flagged_samples,
+        }
+
+    def is_flagged_for(self, sample: str) -> bool:
+        sample = sample.strip()
+        return bool(sample) and sample in self.flagged_samples
+
+
 def parse_custom_rule_line(line: str, index: int) -> RegexRule | None:
     stripped = line.strip()
     if not stripped or stripped.startswith("#"):
@@ -113,14 +151,14 @@ def parse_custom_rules_from_text(text: str) -> list[RegexRule]:
     return parsed_rules
 
 
-def load_saved_custom_rules(path: str) -> list[RegexRule]:
+def load_saved_custom_rules(path: str) -> list[SavedRegex]:
     try:
         with open(path, "r", encoding="utf-8") as file_handle:
             data = json.load(file_handle)
     except (OSError, json.JSONDecodeError):
         return []
 
-    rules: list[RegexRule] = []
+    rules: list[SavedRegex] = []
     if not isinstance(data, list):
         return rules
 
@@ -130,23 +168,38 @@ def load_saved_custom_rules(path: str) -> list[RegexRule]:
         pattern = str(item.get("pattern", "")).strip()
         if not pattern:
             continue
+        flagged_samples = item.get("flagged_samples", [])
+        if not isinstance(flagged_samples, list):
+            flagged_samples = []
         rules.append(
-            RegexRule(
+            SavedRegex(
                 name=str(item.get("name", f"Custom regex {len(rules) + 1}")).strip() or f"Custom regex {len(rules) + 1}",
                 pattern=pattern,
                 purpose=str(item.get("purpose", "User saved custom regex.")).strip() or "User saved custom regex.",
+                # Files saved before the Generic Regex tab existed predate the module
+                # tag entirely — they were always CAT-tab saves, so default to that.
+                module=item.get("module") if item.get("module") in MODULE_LABELS else MODULE_CAT,
+                status=item.get("status") if item.get("status") in (STATUS_WORKING, STATUS_FLAGGED) else STATUS_WORKING,
+                note=str(item.get("note", "")),
+                flagged_samples=[str(s) for s in flagged_samples],
             )
         )
     return rules
 
 
-def save_custom_rules(rules: list[RegexRule], path: str) -> bool:
+def save_custom_rules(rules: list[SavedRegex], path: str) -> bool:
     try:
         with open(path, "w", encoding="utf-8") as file_handle:
             json.dump([rule.as_dict() for rule in rules], file_handle, indent=2)
     except OSError:
         return False
     return True
+
+
+def rules_for_module(rules: list[SavedRegex], module: str, exclude_sample: str = "") -> list[SavedRegex]:
+    """Saved rules belonging to a module, skipping ones flagged against exclude_sample
+    exactly — the 'don't propose this again for the same text' behavior."""
+    return [rule for rule in rules if rule.module == module and not rule.is_flagged_for(exclude_sample)]
 
 
 def classify_input(user_input: str) -> str:
@@ -442,3 +495,91 @@ def build_mode_rules(user_input: str, mode: str) -> list[RegexRule]:
             )
         ]
     return build_contextual_rules(text)
+
+
+# --- Generic (non-CAT-tool) regex ---------------------------------------
+# For matching whole sections of general text (log lines, documents, code)
+# rather than small CAT-tool non-translatable placeholders.
+
+GENERIC_SEGMENT_MODES = ["generic match", "exact match", "word-only", "number-only"]
+
+GENERIC_PRESETS: list[RegexRule] = [
+    RegexRule(
+        name="Email address",
+        pattern=r"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}",
+        purpose="Matches a single email address, including multi-part domains like .co.uk.",
+    ),
+    RegexRule(
+        name="URL (http/https)",
+        pattern=r"https?://[^\s<>\"]+",
+        purpose="Matches an http(s) URL up to the next whitespace or quote.",
+    ),
+    RegexRule(
+        name="IPv4 address",
+        pattern=r"\b(?:\d{1,3}\.){3}\d{1,3}\b",
+        purpose="Matches an IPv4 address.",
+    ),
+    RegexRule(
+        name="Date (YYYY-MM-DD)",
+        pattern=r"\b\d{4}-\d{2}-\d{2}\b",
+        purpose="Matches an ISO-style date.",
+    ),
+    RegexRule(
+        name="Date (D/M/Y or M/D/Y)",
+        pattern=r"\b\d{1,2}/\d{1,2}/\d{2,4}\b",
+        purpose="Matches a slash-separated date.",
+    ),
+    RegexRule(
+        name="Time (HH:MM[:SS])",
+        pattern=r"\b\d{1,2}:\d{2}(?::\d{2})?\b",
+        purpose="Matches a 24h or 12h time value.",
+    ),
+    RegexRule(
+        name="Phone number (loose)",
+        pattern=r"\+?\d[\d ()-]{7,}\d",
+        purpose="Loosely matches international/local phone numbers. May also catch dates/IDs with a similar digit-dash shape — tighten if needed.",
+    ),
+    RegexRule(
+        name="Hex color code",
+        pattern=r"#(?:[0-9a-fA-F]{3}){1,2}\b",
+        purpose="Matches a 3- or 6-digit hex color.",
+    ),
+    RegexRule(
+        name="Whole line",
+        pattern=r"^.*$",
+        purpose="Matches an entire line of text.",
+    ),
+    RegexRule(
+        name="Paragraph (blank-line separated)",
+        pattern=r"(?:(?!\n[ \t]*\n)[\s\S])+",
+        purpose="Matches a block of text (can span multiple lines) up to the next blank line.",
+    ),
+    RegexRule(
+        name="Quoted string (single line)",
+        pattern=r'"[^"\n]*"',
+        purpose="Matches double-quoted text on one line.",
+    ),
+    RegexRule(
+        name="Quoted block (multi-line)",
+        pattern=r'"[\s\S]*?"',
+        purpose="Matches double-quoted text that can span multiple lines.",
+    ),
+    RegexRule(
+        name="HTML/XML tag with content",
+        pattern=r"<(\w+)[^>]*>[\s\S]*?</\1>",
+        purpose="Matches an opening tag, its content, and the matching closing tag.",
+    ),
+    RegexRule(
+        name="Trailing whitespace",
+        pattern=r"[ \t]+$",
+        purpose="Matches indentation-breaking trailing spaces/tabs at the end of a line.",
+    ),
+]
+
+
+def find_matches(pattern: str, text: str) -> list[re.Match]:
+    """Run pattern against text for the generic live tester. MULTILINE so ^/$
+    anchor per line (needed by presets like 'Whole line'); raises re.error on
+    an invalid pattern so callers can show the message to the user."""
+    compiled = re.compile(pattern, re.MULTILINE)
+    return list(compiled.finditer(text))

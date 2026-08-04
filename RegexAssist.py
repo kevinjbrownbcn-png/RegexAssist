@@ -1,9 +1,10 @@
 import datetime
 import json
+import re
 import sys
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 import os
 import webbrowser
 
@@ -13,13 +14,22 @@ from ttkbootstrap.style import Style, ThemeDefinition
 from regex_core import (
     DEFAULT_THEME,
     FONT_FAMILY_TK,
+    GENERIC_PRESETS,
+    GENERIC_SEGMENT_MODES,
+    MODULE_CAT,
+    MODULE_GENERIC,
+    STATUS_FLAGGED,
+    STATUS_WORKING,
     THEMES,
     RegexRule,
+    SavedRegex,
     build_icu_plural_rules,
     build_mode_rules,
+    find_matches,
     is_icu_plural_message,
     load_custom_rules_from_path,
     load_saved_custom_rules,
+    rules_for_module,
     save_custom_rules,
     status_colors,
 )
@@ -82,7 +92,7 @@ class RegexApp:
         header.pack(fill="x")
         ttk.Label(
             header,
-            text="Regex Builder for CAT Tools",
+            text="Regex Builder",
             style="Title.TLabel",
         ).pack(side="left")
 
@@ -111,7 +121,7 @@ class RegexApp:
         year = datetime.date.today().year
         self.footer_left = ttk.Label(
             footer,
-            text=f"© {year} CAT Regex Protector | Regex Builder for CAT Tools",
+            text=f"© {year} CAT Regex Protector | Regex Builder for CAT Tools & General Search",
             style="MutedHeader.TLabel",
         )
         self.footer_left.pack(side="left")
@@ -125,8 +135,22 @@ class RegexApp:
             link.bind("<Button-1>", lambda _event, fn=handler: fn())
             self.footer_links.append(link)
 
-        container = ttk.Frame(root, padding=14)
-        container.pack(fill="both", expand=True)
+        status_bar = ttk.Frame(root, padding=(14, 6))
+        status_bar.pack(side="bottom", fill="x")
+        self.status_var = tk.StringVar(value="Ready.")
+        self.status_label = ttk.Label(status_bar, textvariable=self.status_var, style="Muted.TLabel")
+        self.status_label.pack(side="right")
+
+        self.notebook = ttk.Notebook(root, padding=(14, 10))
+        self.notebook.pack(fill="both", expand=True)
+
+        cat_tab = ttk.Frame(self.notebook)
+        self.notebook.add(cat_tab, text="CAT Tools")
+
+        generic_tab = ttk.Frame(self.notebook)
+        self.notebook.add(generic_tab, text="Generic Regex")
+
+        container = cat_tab
 
         instructions = (
             "Enter content to protect (for example <b>, <i>, {0}, %s, ICU plural messages). "
@@ -248,13 +272,20 @@ class RegexApp:
         ttk.Button(
             bottom_frame, text="Copy Details Panel", bootstyle="secondary", command=self.copy_details
         ).pack(side="left")
-        self.status_var = tk.StringVar(value="Ready.")
-        self.status_label = ttk.Label(bottom_frame, textvariable=self.status_var, style="Muted.TLabel")
-        self.status_label.pack(side="right")
+        ttk.Button(
+            bottom_frame,
+            text="Toggle Working/Flagged (custom regex mode)",
+            bootstyle="warning",
+            command=self.toggle_flag_selected_custom,
+        ).pack(side="left", padx=(8, 0))
 
         self.rules: list[RegexRule] = []
         self.custom_icu_rules: list[RegexRule] = []
-        self.saved_custom_rules: list[RegexRule] = load_saved_custom_rules(CUSTOM_RULES_PATH)
+        self.saved_custom_rules: list[SavedRegex] = load_saved_custom_rules(CUSTOM_RULES_PATH)
+        self.generic_loaded_saved_rule: SavedRegex | None = None
+
+        self._build_generic_tab(generic_tab)
+
         self.try_load_default_icu_rules()
         self._write_welcome()
         self._apply_theme(self.theme, persist=False)
@@ -344,6 +375,14 @@ class RegexApp:
             highlightbackground=c["border"],
             highlightcolor=c["accent_teal"],
         )
+        self.generic_sample_text.configure(
+            bg=c["bg_panel"],
+            fg=c["text_main"],
+            insertbackground=c["text_main"],
+            highlightbackground=c["border"],
+            highlightcolor=c["accent_teal"],
+        )
+        self.generic_sample_text.tag_configure("match", background=c["accent_teal"], foreground="#f8fafc")
 
         self.theme_var.set(theme_name.capitalize())
         self._set_status(self.status_var.get(), self._status_kind)
@@ -373,6 +412,293 @@ class RegexApp:
             "You can also load your own ICU regex list from TXT.\n",
         )
 
+    def _build_generic_tab(self, tab: ttk.Frame) -> None:
+        instructions = (
+            "Build or test a regex for matching whole sections of general text (logs, documents, code) "
+            "outside CAT-tool workflows — not for protecting non-translatables."
+        )
+        ttk.Label(tab, text=instructions, wraplength=720, style="Muted.TLabel").pack(anchor="w", pady=(0, 10))
+
+        preset_frame = ttk.Frame(tab)
+        preset_frame.pack(fill="x", pady=(0, 8))
+        ttk.Label(preset_frame, text="Preset:").pack(side="left")
+        self.generic_preset_var = tk.StringVar()
+        preset_picker = ttk.Combobox(
+            preset_frame,
+            textvariable=self.generic_preset_var,
+            state="readonly",
+            values=[rule.name for rule in GENERIC_PRESETS],
+            width=32,
+        )
+        preset_picker.pack(side="left", padx=(8, 8))
+        ttk.Button(
+            preset_frame, text="Load Preset", bootstyle="secondary", command=self.load_generic_preset
+        ).pack(side="left")
+
+        segment_frame = ttk.Frame(tab)
+        segment_frame.pack(fill="x", pady=(0, 8))
+        ttk.Label(segment_frame, text="Or generate from a sample segment:").pack(side="left")
+        self.generic_segment_var = tk.StringVar()
+        ttk.Entry(segment_frame, textvariable=self.generic_segment_var, width=28).pack(
+            side="left", padx=(8, 8)
+        )
+        self.generic_segment_mode_var = tk.StringVar(value=GENERIC_SEGMENT_MODES[0])
+        ttk.Combobox(
+            segment_frame,
+            textvariable=self.generic_segment_mode_var,
+            state="readonly",
+            values=GENERIC_SEGMENT_MODES,
+            width=14,
+        ).pack(side="left", padx=(0, 8))
+        ttk.Button(
+            segment_frame,
+            text="Generate from Segment",
+            bootstyle="secondary",
+            command=self.generate_from_segment,
+        ).pack(side="left")
+
+        library_frame = ttk.Frame(tab)
+        library_frame.pack(fill="x", pady=(0, 8))
+        ttk.Label(library_frame, text="My Library:").pack(side="left")
+        self.generic_library_var = tk.StringVar()
+        self.generic_library_picker = ttk.Combobox(
+            library_frame,
+            textvariable=self.generic_library_var,
+            state="readonly",
+            values=[],
+            width=28,
+        )
+        self.generic_library_picker.pack(side="left", padx=(8, 8))
+        ttk.Button(
+            library_frame,
+            text="Load from Library",
+            bootstyle="secondary",
+            command=self.load_generic_library_rule,
+        ).pack(side="left", padx=(0, 8))
+        ttk.Button(
+            library_frame,
+            text="Toggle Working/Flagged",
+            bootstyle="warning",
+            command=self.toggle_flag_generic_loaded,
+        ).pack(side="left", padx=(0, 8))
+        ttk.Button(
+            library_frame,
+            text="Delete from Library",
+            bootstyle="secondary",
+            command=self.delete_generic_library_rule,
+        ).pack(side="left")
+
+        save_frame = ttk.Frame(tab)
+        save_frame.pack(fill="x", pady=(0, 8))
+        ttk.Label(save_frame, text="Save current pattern as:").pack(side="left")
+        self.generic_save_name_var = tk.StringVar()
+        ttk.Entry(save_frame, textvariable=self.generic_save_name_var, width=28).pack(
+            side="left", padx=(8, 8)
+        )
+        ttk.Button(
+            save_frame, text="Save to Library", bootstyle="info", command=self.save_generic_to_library
+        ).pack(side="left")
+
+        pattern_frame = ttk.Frame(tab)
+        pattern_frame.pack(fill="x", pady=(0, 4))
+        ttk.Label(pattern_frame, text="Pattern:").pack(side="left")
+        self.generic_pattern_var = tk.StringVar()
+        ttk.Entry(pattern_frame, textvariable=self.generic_pattern_var, font=("Consolas", 10)).pack(
+            side="left", fill="x", expand=True, padx=(8, 8)
+        )
+        ttk.Button(
+            pattern_frame, text="Copy Pattern", bootstyle="secondary", command=self.copy_generic_pattern
+        ).pack(side="left")
+
+        self.generic_purpose_var = tk.StringVar(value="")
+        ttk.Label(tab, textvariable=self.generic_purpose_var, style="Muted.TLabel").pack(
+            anchor="w", pady=(0, 10)
+        )
+
+        ttk.Label(tab, text="Sample text:").pack(anchor="w", pady=(0, 4))
+        self.generic_sample_text = tk.Text(
+            tab,
+            height=12,
+            wrap="word",
+            font=("Consolas", 10),
+            highlightthickness=1,
+            relief="flat",
+            borderwidth=0,
+        )
+        self.generic_sample_text.pack(fill="both", expand=True, pady=(0, 8))
+
+        ttk.Button(
+            tab, text="Highlight Matches", bootstyle="primary", command=self.highlight_generic_matches
+        ).pack(anchor="w")
+
+        self._refresh_generic_library_choices()
+
+    def _refresh_generic_library_choices(self) -> None:
+        names = [rule.name for rule in rules_for_module(self.saved_custom_rules, MODULE_GENERIC)]
+        self.generic_library_picker.configure(values=names)
+        if self.generic_library_var.get() not in names:
+            self.generic_library_var.set("")
+
+    def load_generic_preset(self) -> None:
+        name = self.generic_preset_var.get()
+        preset = next((rule for rule in GENERIC_PRESETS if rule.name == name), None)
+        if not preset:
+            self._set_status("Select a preset first.", "warning")
+            return
+        self.generic_pattern_var.set(preset.pattern)
+        self.generic_purpose_var.set(preset.purpose)
+        self.generic_loaded_saved_rule = None
+        self._set_status(f"Loaded preset: {preset.name}", "success")
+
+    def generate_from_segment(self) -> None:
+        segment = self.generic_segment_var.get().strip()
+        if not segment:
+            self._set_status("Enter a sample segment first.", "warning")
+            return
+        mode = self.generic_segment_mode_var.get()
+        rule = build_mode_rules(segment, mode)[0]
+        self.generic_pattern_var.set(rule.pattern)
+        self.generic_purpose_var.set(rule.purpose)
+        self.generic_loaded_saved_rule = None
+        self._set_status(f"Generated pattern from segment ({mode}).", "success")
+
+    def load_generic_library_rule(self) -> None:
+        name = self.generic_library_var.get()
+        rule = next(
+            (r for r in rules_for_module(self.saved_custom_rules, MODULE_GENERIC) if r.name == name), None
+        )
+        if not rule:
+            self._set_status("Select a saved rule first.", "warning")
+            return
+
+        sample = self.generic_sample_text.get("1.0", "end-1c")
+        if rule.is_flagged_for(sample):
+            self._set_status(
+                f"'{rule.name}' was flagged as not working for this exact sample text — not loading.",
+                "warning",
+            )
+            return
+
+        self.generic_pattern_var.set(rule.pattern)
+        self.generic_purpose_var.set(rule.purpose)
+        self.generic_loaded_saved_rule = rule
+        self._set_status(f"Loaded from library: {rule.name}", "success")
+
+    def save_generic_to_library(self) -> None:
+        name = self.generic_save_name_var.get().strip()
+        pattern = self.generic_pattern_var.get().strip()
+        if not name:
+            self._set_status("Enter a name for this pattern first.", "warning")
+            return
+        if not pattern:
+            self._set_status("Enter or generate a pattern first.", "warning")
+            return
+        if any(r.pattern == pattern and r.module == MODULE_GENERIC for r in self.saved_custom_rules):
+            self._set_status("This pattern is already saved.", "warning")
+            return
+
+        custom_rule = SavedRegex(
+            name=name,
+            pattern=pattern,
+            purpose=self.generic_purpose_var.get() or "User saved custom regex.",
+            module=MODULE_GENERIC,
+        )
+        self.saved_custom_rules.append(custom_rule)
+        if not save_custom_rules(self.saved_custom_rules, CUSTOM_RULES_PATH):
+            self.saved_custom_rules.pop()
+            self._set_status("Failed to save custom regex.", "error")
+            return
+        self._refresh_generic_library_choices()
+        self._set_status(f"Saved to library: {custom_rule.name}", "success")
+
+    def toggle_flag_generic_loaded(self) -> None:
+        target = self.generic_loaded_saved_rule
+        if not target or target not in self.saved_custom_rules:
+            self._set_status("Load a saved rule from the library first.", "warning")
+            return
+
+        if target.status == STATUS_WORKING:
+            note = simpledialog.askstring(
+                "Flag as not working",
+                "Why doesn't this regex work as expected? (optional)",
+                parent=self.root,
+            )
+            if note is None:
+                self._set_status("Flagging cancelled.", "default")
+                return
+            target.status = STATUS_FLAGGED
+            target.note = note.strip()
+            sample = self.generic_sample_text.get("1.0", "end-1c").strip()
+            if sample and sample not in target.flagged_samples:
+                target.flagged_samples.append(sample)
+            status_msg = f"Flagged: {target.name}"
+        else:
+            target.status = STATUS_WORKING
+            target.note = ""
+            target.flagged_samples = []
+            status_msg = f"Marked working: {target.name}"
+
+        if not save_custom_rules(self.saved_custom_rules, CUSTOM_RULES_PATH):
+            self._set_status("Failed to save flag status.", "error")
+            return
+        self._set_status(status_msg, "success")
+
+    def delete_generic_library_rule(self) -> None:
+        name = self.generic_library_var.get()
+        rule = next(
+            (r for r in rules_for_module(self.saved_custom_rules, MODULE_GENERIC) if r.name == name), None
+        )
+        if not rule:
+            self._set_status("Select a saved rule to delete.", "warning")
+            return
+
+        self.saved_custom_rules.remove(rule)
+        if not save_custom_rules(self.saved_custom_rules, CUSTOM_RULES_PATH):
+            self.saved_custom_rules.append(rule)
+            self._set_status("Failed to delete custom regex.", "error")
+            return
+        if self.generic_loaded_saved_rule is rule:
+            self.generic_loaded_saved_rule = None
+        self._refresh_generic_library_choices()
+        self._set_status(f"Deleted from library: {rule.name}", "success")
+
+    def copy_generic_pattern(self) -> None:
+        pattern = self.generic_pattern_var.get()
+        if not pattern:
+            self._set_status("Nothing to copy.", "warning")
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(pattern)
+        self._set_status("Copied pattern.", "success")
+
+    def highlight_generic_matches(self) -> None:
+        pattern = self.generic_pattern_var.get()
+        sample = self.generic_sample_text.get("1.0", "end-1c")
+        self.generic_sample_text.tag_remove("match", "1.0", "end")
+
+        if not pattern:
+            self._set_status("Enter or generate a pattern first.", "warning")
+            return
+        if not sample:
+            self._set_status("Paste some sample text to test against.", "warning")
+            return
+
+        try:
+            matches = find_matches(pattern, sample)
+        except re.error as exc:
+            self._set_status(f"Invalid regex: {exc}", "error")
+            return
+
+        for match in matches:
+            start_idx = self.generic_sample_text.index(f"1.0 + {match.start()} chars")
+            end_idx = self.generic_sample_text.index(f"1.0 + {match.end()} chars")
+            self.generic_sample_text.tag_add("match", start_idx, end_idx)
+
+        if matches:
+            self._set_status(f"{len(matches)} match(es) found.", "success")
+        else:
+            self._set_status("No matches found.", "warning")
+
     def generate(self, event=None) -> None:
         text = self.user_input.get().strip()
         selected_mode = self.mode_var.get()
@@ -381,7 +707,7 @@ class RegexApp:
             return
 
         if selected_mode == "custom regex":
-            self.rules = list(self.saved_custom_rules)
+            self.rules = rules_for_module(self.saved_custom_rules, MODULE_CAT, exclude_sample=text)
             if not self.rules:
                 self._set_status("No saved custom regex rules yet.", "warning")
                 self.rule_list.delete(0, "end")
@@ -424,6 +750,10 @@ class RegexApp:
             f"Regex: {rule.pattern}\n"
             f"Purpose: {rule.purpose}\n"
         )
+        if isinstance(rule, SavedRegex):
+            panel_text += f"Status: {rule.status.upper()}\n"
+            if rule.note:
+                panel_text += f"Note: {rule.note}\n"
         self.details.delete("1.0", "end")
         self.details.insert("end", panel_text)
 
@@ -500,10 +830,11 @@ class RegexApp:
             self._set_status("Custom regex already saved.", "warning")
             return
 
-        custom_rule = RegexRule(
+        custom_rule = SavedRegex(
             name=selected_rule.name,
             pattern=selected_rule.pattern,
             purpose=f"Custom: {selected_rule.purpose}",
+            module=MODULE_CAT,
         )
         self.saved_custom_rules.append(custom_rule)
         if not save_custom_rules(self.saved_custom_rules, CUSTOM_RULES_PATH):
@@ -522,16 +853,63 @@ class RegexApp:
             self._set_status("Select a custom rule to delete.", "warning")
             return
 
+        # self.rules is a filtered view (module + not-flagged-for-current-text), so
+        # map back to the actual object rather than indexing the master list directly.
         idx = selection[0]
-        if idx >= len(self.saved_custom_rules):
+        if idx >= len(self.rules):
             return
-        removed = self.saved_custom_rules.pop(idx)
+        target = self.rules[idx]
+        if target not in self.saved_custom_rules:
+            return
+        removed_index = self.saved_custom_rules.index(target)
+        removed = self.saved_custom_rules.pop(removed_index)
         if not save_custom_rules(self.saved_custom_rules, CUSTOM_RULES_PATH):
-            self.saved_custom_rules.insert(idx, removed)
+            self.saved_custom_rules.insert(removed_index, removed)
             messagebox.showerror("Delete failed", "Could not update saved custom regex rules.")
             self._set_status("Failed to delete custom regex.", "error")
             return
         self._set_status(f"Deleted custom regex: {removed.name}", "success")
+        self.generate()
+
+    def toggle_flag_selected_custom(self) -> None:
+        if self.mode_var.get() != "custom regex":
+            self._set_status("Switch to 'custom regex' mode to flag saved rules.", "warning")
+            return
+        selection = self.rule_list.curselection()
+        if not selection or selection[0] >= len(self.rules):
+            self._set_status("Select a custom rule first.", "warning")
+            return
+
+        target = self.rules[selection[0]]
+        if not isinstance(target, SavedRegex) or target not in self.saved_custom_rules:
+            self._set_status("Select a custom rule first.", "warning")
+            return
+
+        if target.status == STATUS_WORKING:
+            note = simpledialog.askstring(
+                "Flag as not working",
+                "Why doesn't this regex work as expected? (optional)",
+                parent=self.root,
+            )
+            if note is None:
+                self._set_status("Flagging cancelled.", "default")
+                return
+            target.status = STATUS_FLAGGED
+            target.note = note.strip()
+            sample = self.user_input.get().strip()
+            if sample and sample not in target.flagged_samples:
+                target.flagged_samples.append(sample)
+            status_msg = f"Flagged: {target.name}"
+        else:
+            target.status = STATUS_WORKING
+            target.note = ""
+            target.flagged_samples = []
+            status_msg = f"Marked working: {target.name}"
+
+        if not save_custom_rules(self.saved_custom_rules, CUSTOM_RULES_PATH):
+            self._set_status("Failed to save flag status.", "error")
+            return
+        self._set_status(status_msg, "success")
         self.generate()
 
     def try_load_default_icu_rules(self) -> None:
